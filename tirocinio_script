@@ -1,0 +1,185 @@
+import bpy
+import math
+import csv
+import itertools
+from mathutils import Vector
+from bpy_extras.object_utils import world_to_camera_view
+from pathlib import Path
+
+# === CONFIG ===
+mesh_name = "Mesh"  # Name of the mesh object
+rig_name = "Rig"  # Name of the armature
+bone_name = "head"  # Head bone to track
+vertex_group_name = "landmarks"  # Vertex group considered facial landmarks
+slider_prefix = "AU"  # Prefix of Action Units (AU) controls
+slider_max_x = 0.377  # Maximum value of AU controls
+sfera_name = "Sfera"  # Sphere object with camera viewpoints
+gruppo_camera_sfera = "PosizioniCameraFinale2"  # Vertex group used for camera positions
+CSV_DELIMITER = ';'  # CSV delimiter
+
+# === Emotion → AU mapping with precise ranges
+emotion_au_ranges = {
+    "Joy": {"AU6": (0.226, 0.377), "AU12": (0.264, 0.377)},
+    "Sadness": {"AU1": (0.226, 0.377), "AU4": (0.151, 0.302), "AU15": (0.226, 0.377)},
+    "Anger": {"AU4": (0.264, 0.377), "AU5": (0.189, 0.302), "AU7": (0.189, 0.340), "AU23": (0.151, 0.302), "AU24": (0.151, 0.264)},
+    "Fear": {"AU1": (0.189, 0.302), "AU2": (0.226, 0.377), "AU4": (0.075, 0.189), "AU5": (0.2, 0.377), "AU20": (0.189, 0.302), "AU26": (0.3, 0.377)},
+    "Disgust": {"AU9": (0.226, 0.377), "AU10": (0.189, 0.340), "AU17": (0.151, 0.264)},
+    "Surprise": {"AU1": (0.189, 0.340), "AU2": (0.226, 0.377), "AU5": (0.264, 0.377), "AU26": (0.302, 0.377)},
+    "Contempt": {"AU14": (0.226, 0.377), "AU12": (0.151, 0.264)},
+    "Neutral": {}  # No AU active
+}
+
+# === Paths ===
+downloads_folder = Path.home() / "Downloads"
+csv_path = downloads_folder / "landmark_camera_data.csv"
+
+# === AU and Landmark: header order ===
+au_order = [
+    'AU1', 'AU10', 'AU12', 'AU14', 'AU15', 'AU17', 'AU2', 'AU20',
+    'AU23', 'AU24', 'AU26', 'AU4', 'AU5', 'AU6', 'AU7', 'AU9'
+]
+
+# Mediapipe indices for header only
+landmarks_order = [
+    362, 282, 295, 285, 334, 336, 327, 415, 310, 269, 267, 311, 312, 318,
+    405, 402, 317, 291, 333, 280, 323, 338, 411, 387, 263, 385, 380, 249,
+    425, 454, 326, 1, 2, 0, 13, 17, 14, 10, 361, 133, 52, 65, 55, 66, 107,
+    98, 191, 80, 39, 37, 81, 82, 88, 181, 178, 87, 61, 104, 50, 93, 109,
+    187, 160, 33, 158, 153, 7, 205, 234, 97, 132, 373, 390, 144, 163
+]
+
+custom_header = [
+    'frame', 'emotion', 'camera_pos_x', 'camera_pos_y', 'camera_pos_z',
+    'camera_rot_x', 'camera_rot_y', 'camera_rot_z', 'yaw', 'pitch', 'roll',
+] + [f"{au}_intensity" for au in au_order] + [
+    val for idx in landmarks_order for val in (f"{idx}_x", f"{idx}_y")
+]
+
+# === Main scene objects ===
+mesh_obj = bpy.data.objects.get(mesh_name)
+rig_obj = bpy.data.objects.get(rig_name)
+camera = bpy.context.scene.camera
+scene = bpy.context.scene
+sfera = bpy.data.objects.get(sfera_name)
+
+if not mesh_obj or not rig_obj or not camera or not sfera:
+    raise Exception("Mesh, Rig, Camera or Sphere not found")
+
+# === Focal point between pupils ===
+eye_left_idx = 1214
+eye_right_idx = 7166
+v_left_world = mesh_obj.matrix_world @ mesh_obj.data.vertices[eye_left_idx].co
+v_right_world = mesh_obj.matrix_world @ mesh_obj.data.vertices[eye_right_idx].co
+pupil_center = (v_left_world + v_right_world) / 2
+
+# === Extract vertices from camera sphere group ===
+if gruppo_camera_sfera not in sfera.vertex_groups:
+    raise Exception(f"Group '{gruppo_camera_sfera}' not found in sphere")
+
+group_index = sfera.vertex_groups[gruppo_camera_sfera].index
+vertici_gruppo = [
+    sfera.matrix_world @ v.co for v in sfera.data.vertices
+    if any(g.group == group_index for g in v.groups)
+]
+
+# === Landmark indices from 'landmarks' group ===
+def get_landmark_vertices(obj, group_name):
+    group = obj.vertex_groups.get(group_name)
+    if not group:
+        raise Exception(f"Group '{group_name}' not found")
+    return [v.index for v in obj.data.vertices if any(g.group == group.index and g.weight > 0 for g in v.groups)]
+
+landmark_indices = None
+
+# === Utility functions ===
+def reset_all_sliders():
+    for obj in bpy.data.objects:
+        if obj.name.startswith(slider_prefix):
+            obj.location.x = 0.0
+
+def apply_au_values(au_values):
+    for au_name, value in au_values.items():
+        obj = bpy.data.objects.get(au_name)
+        if obj:
+            obj.location.x = min(value, slider_max_x)
+
+def get_head_orientation_relative_to_camera():
+    bone = rig_obj.pose.bones[bone_name]
+    bone_world_matrix = rig_obj.matrix_world @ bone.matrix
+    relative_matrix = camera.matrix_world.inverted() @ bone_world_matrix
+    euler = relative_matrix.to_euler('XYZ')
+    return math.degrees(euler.z), math.degrees(euler.x), math.degrees(euler.y)
+
+# === Write CSV ===
+with open(csv_path, mode='w', newline='', encoding='utf-8') as file:
+    writer = csv.writer(file, delimiter=CSV_DELIMITER)
+    writer.writerow(custom_header)
+
+    frame_counter = 0
+
+    for emotion, au_ranges in emotion_au_ranges.items():
+        au_keys = list(au_ranges.keys())
+        au_intervals = [
+            [au_ranges[au][0] + i * (au_ranges[au][1] - au_ranges[au][0]) / 9 for i in range(10)]
+            for au in au_keys
+        ] if au_keys else [[]]
+
+        au_combinations = list(itertools.product(*au_intervals)) if au_keys else [tuple()]
+
+        for combo in au_combinations:
+            au_values = dict(zip(au_keys, combo))
+            apply_au_values(au_values)
+            bpy.context.view_layer.update()
+
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            evaluated_mesh = mesh_obj.evaluated_get(depsgraph)
+
+            for cam_pos in vertici_gruppo:
+                frame_counter += 1
+                camera.location = cam_pos
+                direction = (pupil_center - camera.location).normalized()
+                camera.rotation_mode = 'QUATERNION'
+                camera.rotation_quaternion = direction.to_track_quat('-Z', 'Y')
+                bpy.context.view_layer.update()
+
+                cam_rot = camera.rotation_quaternion.to_euler('XYZ')
+                yaw, pitch, roll = get_head_orientation_relative_to_camera()
+
+                row = [
+                    frame_counter,
+                    emotion,
+                    round(camera.location.x, 3),
+                    round(camera.location.y, 3),
+                    round(camera.location.z, 3),
+                    round(cam_rot.x, 3),
+                    round(cam_rot.y, 3),
+                    round(cam_rot.z, 3),
+                    round(yaw, 2),
+                    round(pitch, 2),
+                    round(roll, 2),
+                ]
+
+                for au in au_order:
+                    raw_val = au_values.get(au, 0.0)
+                    normalized_val = raw_val / slider_max_x if slider_max_x != 0 else 0.0
+                    row.append(round(normalized_val, 3))
+
+                if landmark_indices is None:
+                    landmark_indices = get_landmark_vertices(mesh_obj, vertex_group_name)
+
+                # Projection using Blender group landmarks, mapped to Mediapipe header
+                for blender_idx, mediapipe_idx in zip(landmark_indices, landmarks_order):
+                    try:
+                        v = evaluated_mesh.data.vertices[blender_idx]
+                        sc = world_to_camera_view(scene, camera, mesh_obj.matrix_world @ v.co)
+                        px = sc.x * scene.render.resolution_x
+                        py = sc.y * scene.render.resolution_y
+                        row.append(round(px, 3))
+                        row.append(round(py, 3))
+                    except Exception:
+                        row.append('')
+                        row.append('')
+
+                writer.writerow(row)
+
+print(f"✅ Completed. CSV saved in: {csv_path}")
