@@ -1,73 +1,79 @@
 # synthetic_emotion_recognition
 
-Synthetic Facial Expression Dataset
+Facial Expression Dataset Generator
 
-Questo progetto utilizza Blender per generare un dataset sintetico di espressioni facciali per il riconoscimento automatico delle emozioni. La generazione di immagini 3D consente di creare molteplici variazioni con annotazioni automatiche precise, superando i limiti dei dataset reali.
+Overview
+This project uses Blender and Python to generate a synthetic facial expression dataset for emotion recognition.
+The system programmatically controls facial Action Units (FACS) and camera positions to generate thousands of labeled samples with perfectly annotated facial landmarks.
+This approach overcomes limitations of real datasets such as annotation errors, limited variation, and lack of ground truth.
 
-L’uso di un approccio sintetico permette di:
+Features
 
-definire con esattezza le intensità delle Action Units (AU) del Facial Action Coding System (Ekman),
+Emotions
+Includes 8 emotions: Joy, Sadness, Anger, Fear, Disgust, Surprise, Neutral, and Contempt.
 
-controllare la posizione della camera su più punti di vista,
+Action Units
+Each emotion is generated using specific FACS Action Units with controlled intensity ranges based on Ekman’s model.
 
-ottenere landmark facciali perfettamente annotati e coerenti con i modelli standard (es. MediaPipe Face Mesh).
+Camera variation
+The camera moves across multiple predefined positions on a hemisphere around the face to simulate real-world viewpoints.
 
-Lo script Python controlla la scena in Blender per produrre combinazioni di emozioni e posizioni camera, registrando tutte le configurazioni in file CSV organizzati secondo i landmark facciali.
+Landmark generation
+Exports 468 facial landmarks mapped to MediaPipe Face Mesh standard.
 
-Caratteristiche del dataset
+Automatic annotation
 
-Emozioni: include 7 emozioni di base (Joy, Sadness, Anger, Fear, Disgust, Surprise, Neutral) + Disprezzo.
+Each sample includes:
+camera position and rotation
+head pose (yaw, pitch, roll)
+Action Unit intensities (normalized 0–1)
+2D facial landmark coordinates
+High scalability
+The system can generate thousands of unique labeled samples automatically.
 
-Action Units (AU): per ogni emozione vengono attivate specifiche AU con intervalli di intensità definiti secondo Ekman.
+Tech stack
+Blender
+Python (bpy)
+MB-Lab
+MediaPipe landmark mapping
 
-Posizioni camera: la camera viene spostata su più vertici di una sfera attorno al volto, per simulare diversi punti di vista.
+Dataset size
+Full dataset size: ~80GB
+Due to size limitations, only sample outputs are included in this repository.
 
-Combinazioni totali: ogni emozione × combinazioni di AU × posizioni camera = migliaia di configurazioni uniche.
+Use case
 
-Salvataggio dati: ogni configurazione viene salvata in un file CSV, con valori di:
+This dataset can be used for:
+training emotion recognition models
+facial landmark detection
+computer vision research
+synthetic data generation pipelines
 
-posizione e rotazione della camera,
+How it works
 
-yaw, pitch e roll della testa,
+The Python script:
+controls facial rig sliders (Action Units)
+moves the camera across predefined positions
+renders the scene
+extracts landmark coordinates
+exports structured CSV files
+Example output
 
-intensità normalizzate delle AU,
+Each CSV contains:
+Action Unit intensities
+head pose
+camera parameters
+468 facial landmark coordinates
 
-coordinate 2D dei landmark facciali proiettati sull’immagine.
+Execution
+Open the .blend file in Blender
+Go to the Scripting tab
+Load the Python script
+Run Script
+Output CSV files will be generated automatically.
 
-Landmark MediaPipe: gli indici dei punti facciali in Blender vengono mappati agli indici del MediaPipe Face Mesh (468 punti) per compatibilità con framework standard.
+Author
+Marco Ghiselli
 
-Strumenti
-
-Blender: ambiente di modellazione 3D e rendering, con scripting Python integrato. Usato per gestire rigging, slider delle AU e generazione immagini/landmark.
-
-Python (bpy): linguaggio di scripting usato all’interno di Blender per automatizzare la generazione delle espressioni e salvare i dati.
-
-MB-Lab: add-on di Blender (derivato da Manuel Bastioni Lab) che permette di creare modelli umani 3D realistici da animare.
-
-Installazione ed esecuzione
-
-Per eseguire lo script:
-
-Aprire il file .blend incluso nel progetto con Blender.
-
-Nella sezione Scripting, caricare il codice Python fornito.
-
-Aprire la Console di sistema di Blender (menu Window > Toggle System Console) per monitorare l’esecuzione.
-
-Avviare lo script (premere Run Script).
-
-A seconda del numero di combinazioni, il processo può richiedere diverse ore.
-
-Al termine, i file CSV saranno salvati nella cartella di output configurata nello script (es. Downloads).
-
-Output
-
-Lo script genera come output un file CSV per ciascun modello di testa/emozione.
-
-Ogni file contiene:
-
-una riga di intestazione con i nomi delle colonne (AU, landmark, camera, ecc.),
-
-migliaia di righe corrispondenti a combinazioni uniche di AU + emozione + posizione camera.
-
+BSc Information Engineering for Video Games and Virtual Reality
 Questi file CSV possono essere usati per addestrare e valutare algoritmi di riconoscimento delle emozioni a partire dalle espressioni facciali.
